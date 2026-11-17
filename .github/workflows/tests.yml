@@ -1,0 +1,65 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: core tests and format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup update stable --no-self-update && rustup default stable && rustup component add rustfmt
+      - run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+      - run: cargo test --manifest-path rust/Cargo.toml -p windows-tools-core --locked
+
+  host:
+    name: host lint, tests and release build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup update stable --no-self-update && rustup default stable && rustup component add clippy
+      - run: cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets --locked -- -D warnings
+      # The host's tests start real PowerShell processes inside job objects.
+      - run: cargo test --manifest-path rust/Cargo.toml --workspace --locked
+      - run: cargo build --manifest-path rust/Cargo.toml --release --locked
+
+  client:
+    name: test client
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -m py_compile tests/client.py tests/acceptance.py
+
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Scan every commit reachable from the checked-out push or PR merge commit.
+      - name: Scan Git history with Gitleaks
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)"
+          -v "$PWD:/repo:ro"
+          ghcr.io/gitleaks/gitleaks:v8.30.1
+          git /repo --log-opts=HEAD --redact --no-banner

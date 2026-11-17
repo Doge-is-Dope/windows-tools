@@ -1,0 +1,34 @@
+# Local state and deployment configuration.
+.local/
+.env
+.env.*
+!.env.example
+**/connection.json
+
+# Credentials, certificates and private keys are provisioned outside Git.
+*.token
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.cer
+*.der
+*.p7b
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+# Generated files and archives.
+**/target/
+**/__pycache__/
+*.py[cod]
+.venv/
+artifacts/
+tools/
+*.log
+*.zip
+*.tar
+*.tar.gz
+.DS_Store
