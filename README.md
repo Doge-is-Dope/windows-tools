@@ -16,15 +16,31 @@ See the [protocol](docs/protocol.md).
 rust/core/     Calls, the lease and dispatch: no transport and no Windows
 rust/host/     The Windows session, job objects, PowerShell, MCP over HTTPS
 tests/         A test client and the acceptance against a running host
-scripts/       Windows build, setup and start helpers
+scripts/       The installer, and Windows build and setup helpers
 docs/          The protocol and the architecture diagram
 ```
 
 ## Install
 
-Download `windows-tools-host.exe` from the [latest release](https://github.com/Doge-is-Dope/windows-tools/releases/latest)
-and copy it to the session user's `%LOCALAPPDATA%\Programs\WindowsTools\`; no administrator needed. It runs on
-64-bit Windows 10 or later. It is not signed, so antivirus or SmartScreen may ask before it first runs.
+As the Windows user whose desktop the controller drives, run
+[install-windows-tools.cmd](scripts/install-windows-tools.cmd), optionally with the IPv4 address the controller
+reaches (it asks when the computer has several). It puts the SHA-256-verified release in
+`%LOCALAPPDATA%\Programs\WindowsTools\`, makes a token and a certificate once, starts the host with no window now and
+at each sign-in, and prints one line for the controller:
+
+```text
+https://<token>@<IPv4>:8767/<certificate SHA-256>
+```
+
+Running it again keeps the token and certificate, so the line stays the same, and restarts the host from the
+installed release. To install offline, put the release's `windows-tools-host.exe` beside the installer. No administrator is
+needed. The host runs on 64-bit Windows 10 or later and is unsigned, so antivirus or SmartScreen may ask before it
+first runs, and a firewall may need an administrator to allow port 8767 once.
+
+The line is the key to the machine: run the installer while no controller watches the screen. To change the token,
+delete `%LOCALAPPDATA%\WindowsTools\state` and run the installer again. To remove the host, end
+`windows-tools-host.exe`, run `reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v "Windows Tools" /f`,
+and delete `%LOCALAPPDATA%\Programs\WindowsTools` and `%LOCALAPPDATA%\WindowsTools`.
 
 ## Build
 
@@ -35,27 +51,16 @@ under `tools\` (or `WT_TOOLS_ROOT`); missing system components need an administr
 powershell -NoProfile -File scripts\build-rust.ps1
 ```
 
-checks formatting, runs the tests and Clippy, and builds into `artifacts\rust\debug\`; install it as above.
+checks formatting, runs the tests and Clippy, and builds into `artifacts\rust\debug\`; run that build with
+`--install <IPv4>` to serve from it.
 
-## Start
-
-In the target user's logged-in, unlocked session:
-
-```text
-windows-tools-host.exe --prepare C:\path\state <local-IPv4>
-windows-tools-host.exe --serve C:\path\state\connection.json
-```
-
-`--prepare` writes a token, a certificate for that address and `connection.json` (port 8767) into a new directory
-only that user can read, and prints the certificate's SHA-256. Give the controller the token and that fingerprint
-to pin. To run without a window, prefix the command with `conhost.exe --headless`.
-
-A controller that already drives the desktop can skip `--prepare` and start the host with `--attach`, handing the
-token over the clipboard; see [who is let in](docs/protocol.md#who-is-let-in).
+## How it runs
 
 One host serves a session, and it starts with the human owning it: nothing runs until a controller takes the lease.
+It listens on the installed address alone, and at sign-in waits for that address to come up. Signing out ends it; the
+next sign-in starts it again.
 
-Not included: starting at logon, a tray icon, certificate renewal, and desktop automation (the controller drives
+Not included: a tray icon, certificate renewal, and desktop automation (the controller drives
 the screen; commands reach scriptable apps).
 
 ## Tests
@@ -70,14 +75,14 @@ The host's tests run in `scripts\build-rust.ps1`. The acceptance runs from any m
 human-owned host, takes about a minute and leaves it that way:
 
 ```sh
-python3 tests/acceptance.py --url https://<IP>:8767 --token-file tools.token --fingerprint <SHA-256>
+python3 tests/acceptance.py 'https://<token>@<IPv4>:8767/<certificate SHA-256>'
 ```
 
 `tests/client.py` is the standard-library test client it uses, not an SDK.
 
 ## Secrets
 
-Keep tokens, keys, certificates, `connection.json` and logs in `.local/`, which Git ignores; `git add -f` still adds
+Keep tokens, keys, certificates and logs in `.local/`, which Git ignores; `git add -f` still adds
 them. Before sharing a commit, scan it and check that it reports a nonzero commit count:
 
 ```sh

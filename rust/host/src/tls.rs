@@ -7,13 +7,12 @@ use hyper_util::{
 use rcgen::{
     Certificate, CertificateParams, DnType, ExtendedKeyUsagePurpose, KeyPair, KeyUsagePurpose,
 };
-use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{self, BufReader},
-    net::{IpAddr, SocketAddr},
-    path::Path,
+    net::{Ipv4Addr, SocketAddr},
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Arc,
     time::Duration,
@@ -23,7 +22,7 @@ use tokio_rustls::{
     TlsAcceptor,
     rustls::{
         ServerConfig,
-        pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+        pki_types::{CertificateDer, PrivateKeyDer},
     },
 };
 
@@ -34,28 +33,12 @@ pub struct Identity {
 }
 
 impl Identity {
-    /// What `--prepare` wrote.
-    pub fn from_files(certificate: &Path, key: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    fn from_files(certificate: &Path, key: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let mut cert = BufReader::new(fs::File::open(certificate)?);
         let certificates = rustls_pemfile::certs(&mut cert).collect::<io::Result<Vec<_>>>()?;
         let mut key = BufReader::new(fs::File::open(key)?);
         let key = rustls_pemfile::private_key(&mut key)?.ok_or("Missing TLS private key.")?;
         Ok(Self { certificates, key })
-    }
-
-    /// A certificate for `address` made now and kept in memory alone, with its fingerprint.
-    pub fn ephemeral(address: &str) -> Result<(Self, String), Box<dyn std::error::Error>> {
-        let (certificate, key) = self_signed(address)?;
-        let certificate = certificate.der().clone();
-        let fingerprint = fingerprint(&certificate);
-        let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key.serialize_der()));
-        Ok((
-            Self {
-                certificates: vec![certificate],
-                key,
-            },
-            fingerprint,
-        ))
     }
 }
 
@@ -63,7 +46,7 @@ impl Identity {
 const LIFETIME_DAYS: i64 = 365;
 
 /// A certificate for `address` that signs itself. No CA vouches for it: a controller pins its
-/// fingerprint, told it over a channel it trusts or seen on first use.
+/// fingerprint, which is in the line `--install` prints.
 fn self_signed(address: &str) -> Result<(Certificate, KeyPair), rcgen::Error> {
     let now = time::OffsetDateTime::now_utc();
     let mut params = CertificateParams::new(vec![address.to_owned()])?;
@@ -107,64 +90,98 @@ fn make_private(directory: &Path) -> io::Result<()> {
     }
 }
 
-pub fn prepare(directory: &Path, address: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let ip: IpAddr = address.parse()?;
-    if ip.is_unspecified() || !ip.is_ipv4() || !directory.is_absolute() {
-        return Err("Choose an explicit IPv4 and absolute private state directory.".into());
-    }
-    make_private(directory)?;
-    let (cert, key) = self_signed(address)?;
-    let fingerprint = fingerprint(cert.der());
-    for (name, text) in [
-        ("server.pem", cert.pem()),
-        ("server.key", key.serialize_pem()),
-        (
-            "tools.token",
-            format!(
-                "{}{}",
-                uuid::Uuid::new_v4().simple(),
-                uuid::Uuid::new_v4().simple()
-            ),
-        ),
-    ] {
-        fs::write(directory.join(name), text)?;
-    }
-    let connection = json!({
-        "url": format!("https://{address}:8767"),
-        "tokenFile": directory.join("tools.token"),
-        "certificateFile": directory.join("server.pem"),
-        "keyFile": directory.join("server.key"),
-        "fingerprint": fingerprint,
-    });
-    fs::write(
-        directory.join("connection.json"),
-        serde_json::to_string_pretty(&connection)?,
-    )?;
-    println!(
-        "Connection metadata: {}\nCertificate SHA-256: {fingerprint}",
-        directory.join("connection.json").display()
-    );
-    Ok(())
+/// The port the host serves on.
+pub const PORT: u16 = 8767;
+
+/// Where this user's token, certificate and key are kept.
+fn directory() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let local = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is not set.")?;
+    Ok(PathBuf::from(local).join("WindowsTools").join("state"))
 }
-/// Serves `app` at `url`; `listening` runs once the port is bound.
+
+/// What the host serves with, as `--install` made it.
+pub struct State {
+    pub token: String,
+    pub fingerprint: String,
+    pub identity: Identity,
+}
+
+impl State {
+    /// Makes the token and a certificate for `address` once: when they exist they are kept, so
+    /// a controller's line stays the same through updates.
+    pub fn create(address: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let ip: Ipv4Addr = address
+            .parse()
+            .map_err(|_| "Give an IPv4 address of this computer.")?;
+        if ip.is_unspecified() || ip.is_loopback() {
+            return Err("Give an IPv4 address the controller can reach.".into());
+        }
+        let directory = directory()?;
+        if directory.try_exists()? {
+            return Ok(());
+        }
+        make_private(&directory)?;
+        let (cert, key) = self_signed(address)?;
+        let token = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        for (name, text) in [
+            ("server.pem", cert.pem()),
+            ("server.key", key.serialize_pem()),
+            ("tools.token", token),
+        ] {
+            fs::write(directory.join(name), text)?;
+        }
+        Ok(())
+    }
+
+    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
+        let directory = directory()?;
+        let missing = |error: io::Error| {
+            format!(
+                "{error}: {} is incomplete; delete it and run --install again.",
+                directory.display()
+            )
+        };
+        let token = fs::read_to_string(directory.join("tools.token"))
+            .map_err(missing)?
+            .trim()
+            .to_owned();
+        let identity =
+            Identity::from_files(&directory.join("server.pem"), &directory.join("server.key"))?;
+        let fingerprint = fingerprint(identity.certificates.first().ok_or("No certificate.")?);
+        Ok(Self {
+            token,
+            fingerprint,
+            identity,
+        })
+    }
+}
+
+/// Serves `app` on `address` alone, waiting for it to appear: at sign-in a network may not be up
+/// yet.
 pub async fn serve(
     app: Router,
-    url: &str,
+    address: Ipv4Addr,
     identity: Identity,
-    listening: impl FnOnce() -> io::Result<()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let address: SocketAddr = url
-        .strip_prefix("https://")
-        .ok_or("The URL must be https://<IP>:<port>.")?
-        .parse()?;
     let acceptor = TlsAcceptor::from(Arc::new(
         ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(identity.certificates, identity.key)?,
     ));
-    let listener = TcpListener::bind(address).await?;
-    listening()?;
-    eprintln!("Windows Tools listening on {url}");
+    let listener = loop {
+        match TcpListener::bind(SocketAddr::from((address, PORT))).await {
+            Ok(listener) => break listener,
+            Err(error) if error.kind() == io::ErrorKind::AddrNotAvailable => {
+                tokio::time::sleep(Duration::from_secs(2)).await
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
+    eprintln!("Windows Tools listening on {address}:{PORT}");
     let limit = Arc::new(tokio::sync::Semaphore::new(64));
     loop {
         let permit = limit.clone().acquire_owned().await?;

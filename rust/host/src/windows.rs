@@ -3,6 +3,7 @@ use std::{
     io::{self, Write},
     mem::{size_of, zeroed},
     os::windows::io::AsRawHandle,
+    path::Path,
     process::{Child, ChildStdin, Command},
     sync::mpsc::{self, Receiver, TryRecvError},
     thread::{self, JoinHandle},
@@ -10,11 +11,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::*,
     System::{
-        DataExchange::*,
-        JobObjects::*,
-        Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
-        RemoteDesktop::ProcessIdToSessionId,
-        StationsAndDesktops::*,
+        JobObjects::*, RemoteDesktop::ProcessIdToSessionId, StationsAndDesktops::*,
         Threading::CreateEventW,
     },
 };
@@ -52,7 +49,7 @@ pub fn singleton() -> io::Result<Handle> {
     }
     Ok(owned)
 }
-/// Ends the other hosts of this session, and the commands they run, so this one can serve it.
+/// Ends the other hosts of this session, and the commands they run.
 pub fn end_other_hosts() -> io::Result<()> {
     use std::os::windows::process::CommandExt;
     Command::new("taskkill")
@@ -66,72 +63,55 @@ pub fn end_other_hosts() -> io::Result<()> {
         .map(|_| ())
 }
 
-const CF_UNICODETEXT: u32 = 13;
-/// The clipboard held open; another program holding it is waited for briefly.
-struct Clipboard;
-impl Clipboard {
-    fn open() -> io::Result<Self> {
-        for _ in 0..40 {
-            if unsafe { OpenClipboard(std::ptr::null_mut()) } != 0 {
-                return Ok(Self);
-            }
-            thread::sleep(std::time::Duration::from_millis(50));
-        }
-        Err(io::Error::last_os_error())
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+/// Starts the host with no window at each sign-in of this user, with no administrator rights.
+pub fn start_at_sign_in(exe: &Path, address: &str) -> io::Result<()> {
+    let added = Command::new("reg")
+        .args([
+            "add",
+            RUN_KEY,
+            "/v",
+            "Windows Tools",
+            "/t",
+            "REG_SZ",
+            "/f",
+            "/d",
+        ])
+        .arg(format!(
+            "conhost.exe --headless \"{}\" --serve {address}",
+            exe.display()
+        ))
+        .stdout(std::process::Stdio::null())
+        .status()?;
+    if added.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(
+            "Could not register the host to start at sign-in.",
+        ))
     }
 }
-impl Drop for Clipboard {
-    fn drop(&mut self) {
-        unsafe {
-            CloseClipboard();
-        }
+/// Starts the host now, with no window and apart from this process's console.
+pub fn start(exe: &Path, address: &str) -> io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    // A caller reading this process's output would otherwise wait for the host to end.
+    for handle in [
+        io::stdin().as_raw_handle(),
+        io::stdout().as_raw_handle(),
+        io::stderr().as_raw_handle(),
+    ] {
+        unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
     }
-}
-/// The clipboard's text, if it holds any.
-pub fn clipboard_text() -> io::Result<Option<String>> {
-    let _open = Clipboard::open()?;
-    let handle = unsafe { GetClipboardData(CF_UNICODETEXT) };
-    if handle.is_null() {
-        return Ok(None);
-    }
-    let text = unsafe { GlobalLock(handle) } as *const u16;
-    if text.is_null() {
-        return Err(io::Error::last_os_error());
-    }
-    let mut length = 0;
-    while length < 4096 && unsafe { *text.add(length) } != 0 {
-        length += 1;
-    }
-    let read = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, length) });
-    unsafe {
-        GlobalUnlock(handle);
-    }
-    Ok(Some(read))
-}
-/// Replaces what the clipboard holds with `text`.
-pub fn set_clipboard_text(text: &str) -> io::Result<()> {
-    let wide: Vec<u16> = text.encode_utf16().chain([0]).collect();
-    let _open = Clipboard::open()?;
-    unsafe {
-        if EmptyClipboard() == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let memory = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2);
-        if memory.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        let target = GlobalLock(memory) as *mut u16;
-        if target.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        std::ptr::copy_nonoverlapping(wide.as_ptr(), target, wide.len());
-        GlobalUnlock(memory);
-        // The clipboard owns the memory from here on.
-        if SetClipboardData(CF_UNICODETEXT, memory).is_null() {
-            return Err(io::Error::last_os_error());
-        }
-    }
-    Ok(())
+    Command::new(exe)
+        .args(["--serve", address])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
+        .spawn()
+        .map(drop)
 }
 pub fn interactive() -> bool {
     use windows_sys::Win32::System::RemoteDesktop::{

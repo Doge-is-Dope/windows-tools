@@ -61,15 +61,11 @@ statement failed. One command runs at a time; a second waits for the first to en
 
 ## Who is let in
 
-One token of at least 32 characters, made by `--prepare` and sent as `Authorization: Bearer`. A request without it gets 401 with an RFC 6750
-challenge; a browser Origin other than the host's own is refused. A command has all of the user's access, so the
-token is the key to the machine.
+One token of at least 32 characters, made by `--install` and sent as `Authorization: Bearer`. A request without it
+gets 401 with an RFC 6750 challenge. A browser Origin other than the host's own is refused, and so is a request that
+names another host than the address given to `--install`. A command has all of the user's access, so the token is the
+key to the machine.
 
-`--attach <IPv4> <port>` is for a controller that already drives the session's desktop. It puts
-`windows-tools-token:<token>` on the session's clipboard and starts the host, which takes the token, ends any other
-host of the session, and replaces the token with `windows-tools-fingerprint:<hex SHA-256 of its certificate>` for
-the controller to pin. Nothing is written to disk; the token and certificate end with the process.
-
-`--prepare <new directory> <IPv4>` writes the token, a certificate for that address that signs itself, and
-`connection.json`, in a directory only the user can read, and prints the certificate's SHA-256. A controller pins
-that fingerprint, or the certificate it first sees.
+`--install <IPv4>` makes the token and a certificate for that address that signs itself, once, in
+`%LOCALAPPDATA%\WindowsTools\state`, which only the user can read; a later run keeps them. It prints one line for the
+controller, `https://<token>@<IPv4>:8767/<hex SHA-256 of the certificate>`, and the controller pins that fingerprint.

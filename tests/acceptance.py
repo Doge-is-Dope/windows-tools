@@ -1,6 +1,6 @@
 """Acceptance against a running host on Windows: commands, the lease and who is let in.
 
-    python tests/acceptance.py --url https://<IP>:8767 --token-file tools.token --fingerprint <SHA-256>
+    python tests/acceptance.py 'https://<token>@<IPv4>:8767/<certificate SHA-256>'
 
 The host must be idle and human-owned. Assertions need Python without -O. Nothing runs on import.
 """
@@ -10,7 +10,6 @@ import argparse
 import json
 import threading
 import time
-from pathlib import Path
 
 from client import Client, HostError, Lease, expect_error
 
@@ -128,16 +127,13 @@ def check_lease(make) -> list[str]:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--url', required=True)
-    parser.add_argument('--token-file', required=True, type=Path)
-    parser.add_argument('--fingerprint', help="the certificate's SHA-256 as --prepare printed it; else the first seen")
+    parser.add_argument('line', help='the line --install printed: https://<token>@<IPv4>:8767/<certificate SHA-256>')
     args = parser.parse_args(argv)
     if not __debug__:
         parser.error('Acceptance assertions require Python without -O.')
-    token = args.token_file.read_text().strip()
 
     def make() -> Client:
-        return Client(args.url, token, args.fingerprint)
+        return Client.from_line(args.line)
 
     description = make().describe()
     if description.get('controlOwner') != 'human' or description.get('desktopBusy') is not False:

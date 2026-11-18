@@ -3,7 +3,6 @@
 .env
 .env.*
 !.env.example
-**/connection.json
 
 # Credentials, certificates and private keys are provisioned outside Git.
 *.token

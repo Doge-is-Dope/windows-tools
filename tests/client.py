@@ -22,8 +22,14 @@ class HostError(RuntimeError):
 class Client:
     """Calls for one session. `target` is the host instance and lease epoch the calls are meant for.
 
-    The host signs its own certificate, so the client pins its SHA-256: `fingerprint` as `--prepare` printed it,
+    The host signs its own certificate, so the client pins its SHA-256: `fingerprint` as `--install` printed it,
     or else the first one seen."""
+
+    @classmethod
+    def from_line(cls, line: str) -> Client:
+        """A client for the line `--install` printed: https://<token>@<IPv4>:<port>/<certificate SHA-256>."""
+        parts = urlsplit(line.strip())
+        return cls(f"https://{parts.hostname}:{parts.port}", parts.username, parts.path.strip("/"))
 
     def __init__(self, url: str, token: str, fingerprint: str | None = None, timeout: float = 40):
         self.url, self.token, self.fingerprint, self.timeout = url.rstrip("/"), token, fingerprint, timeout
