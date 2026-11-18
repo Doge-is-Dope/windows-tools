@@ -5,8 +5,8 @@ set "WT_INSTALLER_DIRECTORY=%~dp0"
 set "WT_ADDRESS=%~1"
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -Command ^
   "$ErrorActionPreference = 'Stop';" ^
-  "$version = 'v0.3.0';" ^
-  "$expected = '0d6121d3e18fce326f32655c9b30159f5c02510b095dd6b0dca0e67a74fb5154';" ^
+  "$version = 'v0.3.1';" ^
+  "$expected = 'bb57bc4372c06688a82fecd234fc27b51f0f6b67460a304e15eed7c0a4d94f1d';" ^
   "$name = 'windows-tools-host.exe';" ^
   "$url = 'https://github.com/Doge-is-Dope/windows-tools/releases/download/' + $version + '/' + $name;" ^
   "$directory = Join-Path $env:LOCALAPPDATA 'Programs\WindowsTools';" ^
