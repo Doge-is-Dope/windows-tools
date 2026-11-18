@@ -91,27 +91,40 @@ pub fn start_at_sign_in(exe: &Path, address: &str) -> io::Result<()> {
         ))
     }
 }
-/// Starts the host now, with no window and apart from this process's console.
+/// Starts the host now, with no window and none of this process's handles: a caller reading
+/// this process's output would otherwise wait for the host to end.
 pub fn start(exe: &Path, address: &str) -> io::Result<()> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    // A caller reading this process's output would otherwise wait for the host to end.
-    for handle in [
-        io::stdin().as_raw_handle(),
-        io::stdout().as_raw_handle(),
-        io::stderr().as_raw_handle(),
-    ] {
-        unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Threading::{
+        CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CreateProcessW, PROCESS_INFORMATION,
+        STARTUPINFOW,
+    };
+    let mut line = std::ffi::OsString::from("\"");
+    line.push(exe);
+    line.push(format!("\" --serve {address}"));
+    let mut command: Vec<u16> = line.encode_wide().chain([0]).collect();
+    let mut startup: STARTUPINFOW = unsafe { zeroed() };
+    startup.cb = size_of::<STARTUPINFOW>() as u32;
+    let mut process: PROCESS_INFORMATION = unsafe { zeroed() };
+    let started = unsafe {
+        CreateProcessW(
+            std::ptr::null(),
+            command.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0, // inherits no handles
+            CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
+            std::ptr::null(),
+            std::ptr::null(),
+            &startup,
+            &mut process,
+        )
+    };
+    if started == 0 {
+        return Err(io::Error::last_os_error());
     }
-    Command::new(exe)
-        .args(["--serve", address])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
-        .spawn()
-        .map(drop)
+    drop((Handle(process.hProcess), Handle(process.hThread)));
+    Ok(())
 }
 pub fn interactive() -> bool {
     use windows_sys::Win32::System::RemoteDesktop::{
