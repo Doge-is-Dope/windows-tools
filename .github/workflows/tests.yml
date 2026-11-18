@@ -36,6 +36,13 @@ jobs:
       # The host's tests start real PowerShell processes inside job objects.
       - run: cargo test --manifest-path rust/Cargo.toml --workspace --locked
       - run: cargo build --manifest-path rust/Cargo.toml --release --locked
+      # The executable a release attaches.
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows-tools-host
+          path: rust/target/release/windows-tools-host.exe
+          if-no-files-found: error
+          retention-days: 7
 
   client:
     name: test client

@@ -20,17 +20,22 @@ scripts/       Windows build, setup and start helpers
 docs/          The protocol and the architecture diagram
 ```
 
+## Install
+
+Download `windows-tools-host.exe` from the [latest release](https://github.com/Doge-is-Dope/windows-tools/releases/latest)
+and copy it to the session user's `%LOCALAPPDATA%\Programs\WindowsTools\`; no administrator needed. It runs on
+64-bit Windows 10 or later. It is not signed, so antivirus or SmartScreen may ask before it first runs.
+
 ## Build
 
-Builds and runs only on Windows, with Rust 1.89+, MSVC and the Windows SDK. `scripts\setup-rust.ps1` installs them
+Builds only on Windows, with Rust 1.89+, MSVC and the Windows SDK. `scripts\setup-rust.ps1` installs them
 under `tools\` (or `WT_TOOLS_ROOT`); missing system components need an administrator.
 
 ```powershell
 powershell -NoProfile -File scripts\build-rust.ps1
 ```
 
-checks formatting, runs the tests and Clippy, and builds into `artifacts\rust\debug\`. Install by copying the
-executable to the session user's `%LOCALAPPDATA%\Programs\WindowsTools\`; no administrator needed.
+checks formatting, runs the tests and Clippy, and builds into `artifacts\rust\debug\`; install it as above.
 
 ## Start
 

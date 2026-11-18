@@ -22,7 +22,14 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      # The executable the tests built.
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: windows-tools-host
+          path: dist
       # The notes are the annotated tag's message.
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-from-tag
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/windows-tools-host.exe
+          --verify-tag --title "$GITHUB_REF_NAME" --notes-from-tag
