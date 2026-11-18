@@ -5,7 +5,8 @@ $ErrorActionPreference = 'Stop'
 $base = Join-Path ([IO.Path]::GetTempPath()) ('windows-tools-test-' + [guid]::NewGuid())
 $originalLocal = $env:LOCALAPPDATA
 $originalProxy = $env:HTTPS_PROXY
-$expected = [regex]::Match((Get-Content -Raw -LiteralPath $Installer), "\$expected = '([^']+)'").Groups[1].Value
+$expected = [regex]::Match((Get-Content -Raw -LiteralPath $Installer), '\$expected = ''([0-9a-f]{64})''').Groups[1].Value
+if (-not $expected) { throw 'No SHA-256 found in the installer.' }
 $env:WT_NO_START = '1'
 $name = 'windows-tools-host.exe'
 $failures = 0

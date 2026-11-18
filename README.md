@@ -24,7 +24,7 @@ docs/          The protocol and the architecture diagram
 
 As the Windows user whose desktop the controller drives, run
 [install-windows-tools.cmd](scripts/install-windows-tools.cmd), optionally with the IPv4 address the controller
-reaches (it asks when the computer has several). It puts the SHA-256-verified release in
+reaches (it asks when the computer has several). It downloads the release it names, checks its SHA-256, puts it in
 `%LOCALAPPDATA%\Programs\WindowsTools\`, makes a token and a certificate once, starts the host with no window now and
 at each sign-in, and prints one line for the controller:
 
@@ -33,9 +33,10 @@ https://<token>@<IPv4>:8767/<certificate SHA-256>
 ```
 
 Running it again keeps the token and certificate, so the line stays the same, and restarts the host from the
-installed release. To install offline, put the release's `windows-tools-host.exe` beside the installer. No administrator is
-needed. The host runs on 64-bit Windows 10 or later and is unsigned, so antivirus or SmartScreen may ask before it
-first runs, and a firewall may need an administrator to allow port 8767 once.
+installed release. To install offline, put that release's `windows-tools-host.exe` from the
+[releases](https://github.com/Doge-is-Dope/windows-tools/releases) beside the installer. No administrator is needed.
+The host runs on 64-bit Windows 10 or later and is unsigned, so antivirus or SmartScreen may ask before it first runs,
+and a firewall may need an administrator to allow port 8767 once.
 
 The line is the key to the machine: run the installer while no controller watches the screen. To change the token,
 delete `%LOCALAPPDATA%\WindowsTools\state` and run the installer again. To remove the host, end

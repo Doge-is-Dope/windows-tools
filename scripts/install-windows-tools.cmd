@@ -6,7 +6,7 @@ set "WT_ADDRESS=%~1"
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -Command ^
   "$ErrorActionPreference = 'Stop';" ^
   "$version = 'v0.3.0';" ^
-  "$expected = 'SET-AT-RELEASE-TO-THE-SHA256-OF-THE-RELEASE-EXE';" ^
+  "$expected = '0d6121d3e18fce326f32655c9b30159f5c02510b095dd6b0dca0e67a74fb5154';" ^
   "$name = 'windows-tools-host.exe';" ^
   "$url = 'https://github.com/Doge-is-Dope/windows-tools/releases/download/' + $version + '/' + $name;" ^
   "$directory = Join-Path $env:LOCALAPPDATA 'Programs\WindowsTools';" ^
