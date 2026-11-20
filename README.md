@@ -13,8 +13,10 @@ What it does:
 - **Lets in one key.** One HTTPS address with one token and a pinned certificate, printed by the installer as a
   single line.
 - **Installs once, without an administrator.** It starts with no window at each sign-in.
+- **Relays browser tools, when installed.** Chrome DevTools MCP's tools, named `browser_*`, under the same lease.
 
-It is one Rust executable that offers two MCP tools, `windows_describe` and `windows_exec_run`.
+It is one Rust executable that offers two MCP tools, `windows_describe` and `windows_exec_run`, and the browser tools
+when they are installed.
 
 ![Architecture](docs/architecture.svg)
 
@@ -55,6 +57,14 @@ reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v "Windows Tools"
 rmdir /S /Q "%LOCALAPPDATA%\Programs\WindowsTools"
 rmdir /S /Q "%LOCALAPPDATA%\WindowsTools"
 ```
+
+### Browser tools
+
+Optional. Run `scripts\install-browser-tools.ps1` as the same user: it puts pinned, hash-checked Node and
+[Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) beside the host, without npm. Install
+Google Chrome separately, then restart the host. The server starts at the first browser call and opens Chrome in a
+profile of its own, without the user's tabs or sign-ins. A call stopped by the lease or its 60-second deadline ends
+the server and that Chrome with it; the next call starts them again.
 
 ## Connect a controller
 
@@ -111,10 +121,10 @@ python3 tests/acceptance.py 'https://<token>@<IPv4>:8767/<certificate SHA-256>'
 ## Layout
 
 ```text
-rust/core/     Calls, the lease and dispatch: no transport and no Windows
+rust/core/     Calls, the lease, dispatch and the relay: no transport and no Windows
 rust/host/     The Windows session, job objects, PowerShell, MCP over HTTPS
 tests/         A test client and the acceptance against a running host
-scripts/       The installer, and Windows build and setup helpers
+scripts/       The installers, and Windows build and setup helpers
 docs/          The protocol and the architecture diagram
 ```
 

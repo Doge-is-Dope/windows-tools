@@ -14,6 +14,7 @@ The host serves one Windows session over HTTPS. A controller reaches it on two r
 | `control.heartbeat` | none | Renews the lease |
 | `control.takeover` | none | Hands the session back to the human and stops what is running |
 | `exec.run` | `windows_exec_run` | Runs one PowerShell command to its end and returns how it ended and what it printed |
+| none | `browser_*` | Relayed to Chrome DevTools MCP, when installed (see below) |
 
 To add a tool: give `Toolset` a method for it, list it in `rust/host/src/mcp/catalog.rs` with its schema, and call
 it from the handler in `rust/host/src/mcp/handler.rs`.
@@ -58,6 +59,15 @@ stderr in the order they arrived, the last 64 KiB), `outputTruncated`, and `erro
 with `exitCode` null, or null. The exit code is that of
 `powershell -Command` for the same text, except that a program's own code is kept: non-zero only when the last
 statement failed. One command runs at a time; a second waits for the first to end.
+
+## Browser tools
+
+When installed, `tools/list` adds Chrome DevTools MCP's tools with `browser_` before each name, their schemas as the
+server lists them. A call runs like `exec.run`: one action at a time, only under the lease, its target in `_meta`.
+`result` is the server's own `tools/call` result (`content`, `isError`). A call the server refuses comes back
+`invalid_arguments`, `not_sent`. A call stopped when the lease ends or the caller leaves (`cancelled`), after 60
+seconds (`timed_out`), or whose server exits (`exited`) comes back `unknown`; the server and its Chrome are ended,
+and the next call starts them again.
 
 ## Who is let in
 

@@ -62,6 +62,13 @@ fn tool(
     serde_json::from_value(definition).expect("Static MCP schema")
 }
 
+/// A relayed tool as listed, returning the same envelope as the host's own.
+pub fn relayed(listed: &Value) -> Option<Tool> {
+    let mut definition = listed.clone();
+    definition["outputSchema"] = envelope();
+    serde_json::from_value(definition).ok()
+}
+
 /// Every tool returns the native response envelope; failures also set `isError`.
 fn envelope() -> Value {
     json!({

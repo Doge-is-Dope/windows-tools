@@ -8,6 +8,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub mod output;
+pub mod relay;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -309,10 +310,20 @@ impl Toolset {
         Ok(self.describe())
     }
 
-    /// One command at a time, and only under the lease: for `target`, or for the one current
-    /// when the call arrives. `left` says the caller stopped waiting: the command is refused if
-    /// it has not started and stopped if it is running. The lease is not touched.
+    /// Runs a command through `gated`.
     pub fn run(&self, args: Value, target: Option<Target>, left: &AtomicBool) -> RpcResult {
+        self.gated(target, left, |stop| self.execution.run(args, stop))
+    }
+
+    /// One action at a time, and only under the lease: for `target`, or for the one current
+    /// when the call arrives. `left` says the caller stopped waiting: the action is refused if
+    /// it has not started and told to stop if it is running. The lease is not touched.
+    pub fn gated(
+        &self,
+        target: Option<Target>,
+        left: &AtomicBool,
+        work: impl FnOnce(&dyn Fn() -> bool) -> RpcResult,
+    ) -> RpcResult {
         let target = target.unwrap_or_else(|| self.target());
         self.selected(&target)?;
         let _operation = self.operations.lock().unwrap();
@@ -332,7 +343,7 @@ impl Toolset {
             ));
         }
         let stop = || left.load(Ordering::SeqCst) || !self.lease.owns(epoch);
-        self.execution.run(args, &stop)
+        work(&stop)
     }
 }
 

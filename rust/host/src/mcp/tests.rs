@@ -28,7 +28,7 @@ fn only_the_token_is_let_in() {
         Box::new(Native),
         Box::new(Native),
     ));
-    let a = Adapter::new(tools, "https://127.0.0.1:8767".into(), TOKEN);
+    let a = Adapter::new(tools, "https://127.0.0.1:8767".into(), None, TOKEN);
     assert!(a.authenticated(TOKEN));
     assert!(!a.authenticated("another-token-of-at-least-thirty-two-chars"));
     assert!(!a.authenticated(""));

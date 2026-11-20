@@ -28,6 +28,10 @@ impl ServerHandler for Handler {
             .iter()
             .find(|tool| tool.name == name)
             .cloned()
+            .or_else(|| {
+                let listed = self.adapter.browser.as_ref()?.listed()?;
+                catalog::relayed(listed.iter().find(|tool| tool["name"] == name)?)
+            })
     }
 
     fn get_info(&self) -> ServerConfig {
@@ -40,7 +44,15 @@ impl ServerHandler for Handler {
         _: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(catalog::TOOLS.clone()))
+        let mut tools = catalog::TOOLS.clone();
+        // Tools that cannot be listed are left out; the host's own still work.
+        if let Some(relay) = self.adapter.browser.clone()
+            && let Ok(Ok(listed)) =
+                tokio::task::spawn_blocking(move || relay.tools().map(<[_]>::to_vec)).await
+        {
+            tools.extend(listed.iter().filter_map(catalog::relayed));
+        }
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
     async fn call_tool(
@@ -50,28 +62,47 @@ impl ServerHandler for Handler {
     ) -> Result<CallToolResponse, ErrorData> {
         let tools = self.adapter.tools.clone();
         let selected = selected_target(&ctx.meta)?;
-        let result = match request.name.as_ref() {
+        let args = Value::Object(request.arguments.unwrap_or_default());
+        let name = request.name.to_string();
+        let result = match name.as_str() {
             catalog::DESCRIBE => Ok(tools.describe()),
             catalog::EXEC_RUN => {
-                let args = Value::Object(request.arguments.unwrap_or_default());
-                // MCP cancels a call when its response stream closes, as when a client stops
-                // waiting. Only that call is stopped; the lease stays.
-                let left = Arc::new(AtomicBool::new(false));
-                let seen = left.clone();
-                let work = tokio::task::spawn_blocking(move || tools.run(args, selected, &seen));
-                tokio::select! {
-                    result = work => result.unwrap_or_else(|_| {
-                        Err(RpcError::unknown("internal_error", "The outcome is unknown."))
-                    }),
-                    _ = ctx.ct.cancelled() => {
-                        left.store(true, Ordering::SeqCst);
-                        Err(RpcError::unknown("cancelled", "Cancelled; check what happened before running it again."))
-                    }
-                }
+                cancellable(ctx.ct.cancelled(), move |left| {
+                    tools.run(args, selected, left)
+                })
+                .await
             }
-            _ => return Err(ErrorData::invalid_params("Unknown Windows tool.", None)),
+            _ => match self.adapter.browser.clone() {
+                Some(relay) if relay.owns(&name) => {
+                    cancellable(ctx.ct.cancelled(), move |left| {
+                        tools.gated(selected, left, |stop| relay.call(&name, args, stop))
+                    })
+                    .await
+                }
+                _ => return Err(ErrorData::invalid_params("Unknown Windows tool.", None)),
+            },
         };
         Ok(tool_result(ctx.id.to_string(), result))
+    }
+}
+
+/// Runs a call off the async threads. MCP cancels a call when its response stream closes, as
+/// when a client stops waiting: only that call is stopped, and the lease stays.
+async fn cancellable(
+    cancelled: impl Future<Output = ()>,
+    work: impl FnOnce(&AtomicBool) -> RpcResult + Send + 'static,
+) -> RpcResult {
+    let left = Arc::new(AtomicBool::new(false));
+    let seen = left.clone();
+    let running = tokio::task::spawn_blocking(move || work(&seen));
+    tokio::select! {
+        result = running => result.unwrap_or_else(|_| {
+            Err(RpcError::unknown("internal_error", "The outcome is unknown."))
+        }),
+        _ = cancelled => {
+            left.store(true, Ordering::SeqCst);
+            Err(RpcError::unknown("cancelled", "Cancelled; check what happened before running it again."))
+        }
     }
 }
 

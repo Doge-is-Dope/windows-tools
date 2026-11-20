@@ -1,5 +1,6 @@
 #[cfg(not(target_os = "windows"))]
 compile_error!("Build and run the host on Windows.");
+mod browser;
 mod jobs;
 mod mcp;
 mod tls;
@@ -103,6 +104,6 @@ async fn serve(state: tls::State, address: &str) -> Result<(), Failure> {
         }
     });
     let origin = format!("https://{address}:{}", tls::PORT);
-    let adapter = mcp::Adapter::new(tools, origin, &state.token);
+    let adapter = mcp::Adapter::new(tools, origin, browser::relay(), &state.token);
     tls::serve(mcp::router(adapter), address.parse()?, state.identity).await
 }
